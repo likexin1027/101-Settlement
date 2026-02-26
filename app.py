@@ -35,15 +35,7 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from reward_system.reward_logic import (  # pyright: ignore[reportMissingImports]
-    DEFAULT_REWARD_TABLE,  # pyright: ignore[reportUnknownVariableType]
-    DEFAULT_QUALITY_RULES,
-    DEFAULT_TIME_RULES,
-    build_download_buffer,  # pyright: ignore[reportUnknownVariableType]
-    compute_rewards,  # pyright: ignore[reportUnknownVariableType]
-    load_sample_data,  # pyright: ignore[reportUnknownVariableType]
-)
-
+from reward_system import reward_logic as _reward_logic  # pyright: ignore[reportMissingImports]
 from reward_system.activity_store import (  # pyright: ignore[reportMissingImports]
     add_activity,
     get_activity_by_id,
@@ -52,6 +44,14 @@ from reward_system.activity_store import (  # pyright: ignore[reportMissingImpor
     delete_activity,
     update_activity_meta,
 )
+
+DEFAULT_REWARD_TABLE = cast(pd.DataFrame, getattr(_reward_logic, "DEFAULT_REWARD_TABLE", pd.DataFrame()))
+DEFAULT_QUALITY_RULES = cast(list[dict[str, object]], getattr(_reward_logic, "DEFAULT_QUALITY_RULES", []))
+DEFAULT_TIME_RULES = cast(list[dict[str, object]], getattr(_reward_logic, "DEFAULT_TIME_RULES", []))
+build_download_buffer = getattr(_reward_logic, "build_download_buffer")
+compute_rewards = getattr(_reward_logic, "compute_rewards")
+load_sample_data = getattr(_reward_logic, "load_sample_data")
+
 
 
 
