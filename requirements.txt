@@ -1,6 +1,6 @@
-streamlit>=1.32.0
-pandas>=2.1.0
-openpyxl>=3.1.2
-calamine>=0.1.0
-pandas-stubs>=2.1.4.230922
+pandas
+streamlit
+requests
+openpyxl
+python-calamine
 
