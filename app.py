@@ -446,9 +446,10 @@ def main() -> None:
 
     st.info(f"当前数据：{len(df)} 行，{len(df.columns)} 列。预览显示前 200 行（如有）。")
     with st.expander("查看原始数据", expanded=False):
-        st.dataframe(df.head(200), use_container_width=True, height=360)
+        st.dataframe(df.head(200), use_container_width=True, height=360, key="raw_preview")
 
     rule_config_payload = {
+
         "table": reward_table,
         "quality_rules": quality_table.to_dict(orient="records"),
         "time_rules": time_table.to_dict(orient="records"),
@@ -482,10 +483,11 @@ def main() -> None:
     col2.metric("计入作品数", int(valid_count))
     col3.metric("未计入/0元", int(excluded_count))
 
-    st.dataframe(result_df, use_container_width=True, height=560)
+    st.dataframe(result_df, use_container_width=True, height=560, key="result_table")
 
     st.subheader("下载结果")
     buffer = build_download_buffer(result_df)
+
     st.download_button(
         label="下载处理后的 Excel",
         data=buffer,
