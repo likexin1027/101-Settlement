@@ -655,9 +655,48 @@ def main() -> None:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+    exclude_keywords = cast(list[str], getattr(_reward_logic, "EXCLUDE_KEYWORDS", []))
+
+    base_summary: str
+    if base_mode == "档位":
+        base_summary = "基础奖励：档位梯度按渠道匹配阈值发放。"
+    elif base_mode == "CPM":
+        base_summary = (
+            f"基础奖励：CPM，抖音/视频号 {cpm_cfg.get('抖音/视频号', 0):.2f} 元/千次，小红书 {cpm_cfg.get('小红书', 0):.2f} 元/千次，"
+            f"B站 {cpm_cfg.get('B站', 0):.2f} 元/千次。"
+        )
+    else:
+        tracks_cfg = cast(list[dict[str, object]], base_params.get("tracks", []))
+        base_summary = f"基础奖励：瓜分模式，{len(tracks_cfg)} 个赛道，按赛道平台合并方式和奖金池阶梯瓜分。"
+
+    quality_rules_list = cast(list[dict[str, object]], quality_table.to_dict(orient="records"))
+    quality_summary_parts: list[str] = []
+    for rule in quality_rules_list:
+        name = str(rule.get("名称", "质量规则"))
+        field = str(rule.get("字段", ""))
+        threshold = str(rule.get("阈值", ""))
+        bonus = str(rule.get("加成", ""))
+        only_short = rule.get("仅短视频", False)
+        tag = "(仅短视频)" if only_short else ""
+        quality_summary_parts.append(f"{name}:{field}≥{threshold} 加 {bonus} {tag}")
+    quality_summary = "；".join(quality_summary_parts) or "质量加成：按配置字段和阈值加成。"
+
+    time_rules_list = cast(list[dict[str, object]], time_table.to_dict(orient="records"))
+    time_summary_parts: list[str] = []
+    for rule in time_rules_list:
+        keywords = rule.get("关键词")
+        keywords_text = ",".join(keywords) if isinstance(keywords, list) else str(keywords or "")
+        min_play = rule.get("播放下限", "")
+        bonus = rule.get("加成", "")
+        time_summary_parts.append(f"关键词[{keywords_text}] 播放≥{min_play} 加 {bonus}")
+    time_summary = "；".join(time_summary_parts) or "限时加成：按关键词和播放下限加成。"
+
+    exclude_summary = f"过滤：含 {"、".join(exclude_keywords) if exclude_keywords else '配置关键词'} 的记录不计入。"
+
     st.caption(
-        "规则摘要：基础梯度按渠道匹配阈值；热点/新春/长期/当月主题加50；B站热搜+100，热门+200（取其高，支持布尔列或文案）；短视频点赞≥10w加300，播放≥200w加1000，评论数≥5000加200；含 BUG/建议/拉踩 的记录不计入。"
+        f"规则摘要：{base_summary} {quality_summary}；{time_summary}；{exclude_summary}"
     )
+
 
 
 
