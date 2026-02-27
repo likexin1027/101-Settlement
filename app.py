@@ -1,3 +1,4 @@
+# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnusedCallResult=false
 import io
 import tempfile
 import csv
@@ -8,7 +9,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from openpyxl import load_workbook  # type: ignore
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Callable, cast
+
+
+
 
 
 
@@ -35,22 +39,33 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from reward_system import reward_logic as _reward_logic  # pyright: ignore[reportMissingImports]
-from reward_system.activity_store import (  # pyright: ignore[reportMissingImports]
+from reward_system import reward_logic as _reward_logic
+from activity_store import (
+    Activity,
     add_activity,
     get_activity_by_id,
     load_activities,
-    update_activity_rule,  # pyright: ignore[reportUnknownVariableType]
+    update_activity_rule,
     delete_activity,
     update_activity_meta,
 )
 
+
+
+RuleDict = dict[str, object]
+
+ComputeRewardsFn = Callable[[pd.DataFrame, object], pd.DataFrame]
+BuildDownloadBufferFn = Callable[[pd.DataFrame], bytes]
+LoadSampleDataFn = Callable[[], pd.DataFrame]
+
+
 DEFAULT_REWARD_TABLE = cast(pd.DataFrame, getattr(_reward_logic, "DEFAULT_REWARD_TABLE", pd.DataFrame()))
-DEFAULT_QUALITY_RULES = cast(list[dict[str, object]], getattr(_reward_logic, "DEFAULT_QUALITY_RULES", []))
-DEFAULT_TIME_RULES = cast(list[dict[str, object]], getattr(_reward_logic, "DEFAULT_TIME_RULES", []))
-build_download_buffer = getattr(_reward_logic, "build_download_buffer")
-compute_rewards = getattr(_reward_logic, "compute_rewards")
-load_sample_data = getattr(_reward_logic, "load_sample_data")
+DEFAULT_QUALITY_RULES = cast(list[RuleDict], getattr(_reward_logic, "DEFAULT_QUALITY_RULES", []))
+DEFAULT_TIME_RULES = cast(list[RuleDict], getattr(_reward_logic, "DEFAULT_TIME_RULES", []))
+build_download_buffer = cast(BuildDownloadBufferFn, getattr(_reward_logic, "build_download_buffer"))
+compute_rewards = cast(ComputeRewardsFn, getattr(_reward_logic, "compute_rewards"))
+load_sample_data = cast(LoadSampleDataFn, getattr(_reward_logic, "load_sample_data"))
+
 
 
 
@@ -72,7 +87,14 @@ STATUS_BADGE = {
 }
 
 
+def _as_str(value: object, default: str = "") -> str:
+    if value is None:
+        return default
+    return str(value)
+
+
 def _parse_date(value: str | None) -> datetime.date | None:
+
 
     if not value:
         return None
@@ -98,15 +120,16 @@ def show_friendly_excel_error(message: str | None = None) -> None:
 
 
 
-def read_excel_with_fallback(file_bytes: bytes) -> pd.DataFrame | None:  # pyright: ignore[reportUnknownParameterType, reportUnknownMemberType]
+def read_excel_with_fallback(file_bytes: bytes) -> pd.DataFrame | None:
     # 优先 openpyxl（含样式时可能报 Fill 相关错误）
     try:
-        return cast(pd.DataFrame, pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl"))  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        return cast(pd.DataFrame, pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl"))
 
     except Exception as exc_primary:  # noqa: BLE001
         msg = str(exc_primary).lower()
         if "fill" in msg or "openpyxl" in msg:
-            st.info("检测到样式问题，正在尝试自动转换为 CSV 再读取……")  # pyright: ignore[reportUnusedCallResult, reportUnnecessaryTypeIgnoreComment]
+            st.info("检测到样式问题，正在尝试自动转换为 CSV 再读取……")
+
         # 其次使用 xlsx2csv 仅读取值，不解析样式，兼容腾讯文档导出
         try:
             if not HAS_XLSX2CSV:
@@ -147,15 +170,10 @@ def read_excel_with_fallback(file_bytes: bytes) -> pd.DataFrame | None:  # pyrig
                 return None
 
 
-    return None
-
-
-
-
-
 
 
 def read_uploaded_file(file: io.BytesIO, name: str) -> pd.DataFrame | None:
+
     suffix = name.lower()
     if suffix.endswith(":memory:"):
         suffix = suffix[:-8]
@@ -169,9 +187,10 @@ def read_uploaded_file(file: io.BytesIO, name: str) -> pd.DataFrame | None:
 
 
 def main() -> None:
-    activities = load_activities()
+    activities: list[Activity] = load_activities()
     if "current_activity_id" not in st.session_state:
         st.session_state.current_activity_id = activities[0]["id"] if activities else ""
+
 
     # 活动管理核心区（常驻展开）
     st.sidebar.header("活动管理核心区")
@@ -215,16 +234,19 @@ def main() -> None:
 
     # 活动下拉选择（含状态色标）
     option_labels = [
-        f"{STATUS_BADGE.get(a.get('status',''), '⚪️')} {a['name']}｜{a.get('period','未设期数')}"
+        f"{STATUS_BADGE.get(_as_str(a.get('status'), ''), '⚪️')} {_as_str(a.get('name'), '未命名')}｜{_as_str(a.get('period'), '未设期数')}"
         for a in activities
     ]
-    option_map = {label: act["id"] for label, act in zip(option_labels, activities)}
+    option_map: dict[str, str] = {label: _as_str(act["id"], "") for label, act in zip(option_labels, activities)}
     current_label = next((lbl for lbl, aid in option_map.items() if aid == st.session_state.current_activity_id), option_labels[0])
     selected_label = st.sidebar.selectbox("选择活动", option_labels, index=option_labels.index(current_label))
     st.session_state.current_activity_id = option_map[selected_label]
 
 
     current_activity = get_activity_by_id(st.session_state.current_activity_id) or activities[0]
+
+
+
 
     st.title(f"活动奖励计算系统 - {current_activity.get('name', '未命名')}")
     st.caption("上传作品数据 → 调整梯度 → 预览结果 → 下载Excel")
@@ -241,29 +263,35 @@ def main() -> None:
     period_edit = c2.text_input("期数", value=current_activity.get("period", ""), key="act_period")
 
     d1, d2 = st.sidebar.columns(2)
-    start_date_val = _parse_date(current_activity.get("start_date"))
-    end_date_val = _parse_date(current_activity.get("end_date"))
+    start_date_val = _parse_date(_as_str(current_activity.get("start_date"), "") or None)
+    end_date_val = _parse_date(_as_str(current_activity.get("end_date"), "") or None)
     start_date_edit = d1.date_input("开始日期", value=start_date_val, key="act_start")
     end_date_edit = d2.date_input("结束日期", value=end_date_val, key="act_end")
 
     c3, c4 = st.sidebar.columns(2)
     status_options = ["草稿", "进行中", "已结束"]
+    def _format_status_option(opt: str) -> str:
+        return STATUS_BADGE.get(opt, opt)
+
     status_edit = c3.selectbox(
         "状态",
         status_options,
-        index=status_options.index(current_activity.get("status", "草稿")),
+        index=status_options.index(_as_str(current_activity.get("status"), "草稿")),
         key="act_status",
-        format_func=lambda s: STATUS_BADGE.get(s, str(s)),
+        format_func=_format_status_option,
     )
 
-    remark_edit = c4.text_input("备注", value=current_activity.get("remark", ""), key="act_remark")
+
+    remark_edit = c4.text_input("备注", value=_as_str(current_activity.get("remark"), ""), key="act_remark")
+
 
 
 
     action_col1, action_col2 = st.sidebar.columns(2)
-    if action_col1.button("保存活动信息"):
+    current_id = _as_str(current_activity.get("id"), "")
+    if action_col1.button("保存活动信息") and current_id:
         update_activity_meta(
-            current_activity["id"],
+            current_id,
             {
                 "name": name_edit,
                 "period": period_edit,
@@ -276,6 +304,7 @@ def main() -> None:
         st.success("活动信息已更新")
         st.rerun()
 
+
     # 删除当前活动（两步确认弹窗式体验，同行放置）
     if "show_delete_confirm" not in st.session_state:
         st.session_state.show_delete_confirm = False
@@ -286,9 +315,9 @@ def main() -> None:
     if st.session_state.show_delete_confirm:
         st.sidebar.warning("确认删除当前活动？此操作不可恢复，且至少保留1个活动。")
         dc1, dc2 = st.sidebar.columns(2)
-        if dc1.button("确认删除", key="confirm_delete_btn"):
+        if dc1.button("确认删除", key="confirm_delete_btn") and current_id:
             try:
-                delete_activity(current_activity["id"])
+                delete_activity(current_id)
             except Exception as exc:  # noqa: BLE001
                 st.sidebar.error(str(exc))
             else:
@@ -298,6 +327,7 @@ def main() -> None:
                 st.success("活动已删除")
             st.session_state.show_delete_confirm = False
             st.rerun()
+
         if dc2.button("取消", key="cancel_delete_btn"):
             st.session_state.show_delete_confirm = False
             st.rerun()
@@ -310,12 +340,13 @@ def main() -> None:
     st.subheader("梯度与规则")
     st.markdown("可在下表中直接修改奖励金额或阈值，阈值需为数字。")
 
-    rule_versions = current_activity.get("rule_versions") or []
+    rule_versions = cast(list[RuleDict], current_activity.get("rule_versions") or [])
     rule_cfg = rule_versions[0] if rule_versions else {
         "table": DEFAULT_REWARD_TABLE.to_dict(orient="records"),
         "quality_rules": DEFAULT_QUALITY_RULES,
         "time_rules": DEFAULT_TIME_RULES,
     }
+
 
     current_rule_table: list[dict[str, object]] = cast(
         list[dict[str, object]], rule_cfg.get("table") or DEFAULT_REWARD_TABLE.to_dict(orient="records")
@@ -384,11 +415,16 @@ def main() -> None:
                     }
                 ]
 
-            tracks_state = [t for t in tracks_state if isinstance(t, dict)]
+            tracks_state = list(tracks_state)
+
+            def _format_merge_mode(opt: str) -> str:
+                return {"sum": "求和", "max": "取最大", "max_plus_sum": "最大+其余求和"}.get(opt, opt)
 
             for t_idx, track in enumerate(tracks_state):
 
+
                 label = str(track.get("name", "赛道") or f"赛道 {t_idx+1}")
+
                 with st.expander(label, expanded=False):
                     name_val = st.text_input("赛道名称", value=str(track.get("name", "")), key=f"track_name_{t_idx}")
 
@@ -408,9 +444,10 @@ def main() -> None:
                         "播放合并方式",
                         merge_options,
                         index=merge_options.index(merge_mode_val),
-                        format_func=lambda x: {"sum": "求和", "max": "取最大", "max_plus_sum": "最大+其余求和"}.get(str(x), str(x)),
+                        format_func=_format_merge_mode,
                         key=f"track_merge_{t_idx}",
                     )
+
 
                     floor_raw = track.get("floor", 0.0)
                     if isinstance(floor_raw, (int, float, str)):
@@ -510,11 +547,12 @@ def main() -> None:
     if st.button("保存基础奖励配置"):
         # 过滤空行
         tiers_clean = [row for row in reward_table.to_dict(orient="records") if any(str(v).strip() for v in row.values())]
-        base_params_payload = {"tiers": tiers_clean, "cpm": cpm_cfg, "pool": pool_cfg}
+        base_params_payload = cast(dict[str, object], {"tiers": tiers_clean, "cpm": cpm_cfg, "pool": pool_cfg})
         if base_mode == "瓜分":
             tracks_raw = base_params.get("tracks", [])
             tracks_payload = [t for t in tracks_raw if isinstance(t, dict)] if isinstance(tracks_raw, list) else []
-            base_params_payload["tracks"] = tracks_payload
+            base_params_payload["tracks"] = cast(list[dict[str, object]], tracks_payload)
+
 
 
         update_activity_rule(
@@ -546,11 +584,13 @@ def main() -> None:
         st.button("清空当前数据", disabled=True, help="后续支持")
 
     if uploaded:
-        df_uploaded = read_uploaded_file(io.BytesIO(uploaded.read()), uploaded.name)
+        uploaded_name = str(getattr(uploaded, "name", ""))
+        df_uploaded = read_uploaded_file(io.BytesIO(uploaded.read()), uploaded_name)
         if df_uploaded is None:
             return
         df: pd.DataFrame = df_uploaded
-        st.success(f"已加载文件：{uploaded.name}")
+        st.success(f"已加载文件：{uploaded_name}")
+
     elif use_sample:
         df = cast(pd.DataFrame, load_sample_data())
         st.info("已加载示例数据（reward_system/data/sample_data.csv）。")
