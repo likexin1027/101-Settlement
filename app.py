@@ -352,11 +352,12 @@ def main() -> None:
             reward_table = st.data_editor(
                 pd.DataFrame(current_rule_table),
                 num_rows="dynamic",
-                width="stretch",
                 hide_index=True,
                 key="tier_editor",
                 column_config={"阈值": st.column_config.NumberColumn("阈值", format="%d", help="对应播放量下限")},
             )
+
+
         elif base_mode == "CPM":
             st.markdown("**CPM 配置（元/千次）**")
             col1, col2, col3 = st.columns(3)
@@ -376,7 +377,6 @@ def main() -> None:
         quality_table = st.data_editor(
             pd.DataFrame(quality_rules_data),
             num_rows="dynamic",
-            width="stretch",
             hide_index=True,
             key="quality_editor",
             column_config={
@@ -386,12 +386,13 @@ def main() -> None:
             },
         )
 
+
+
     with time_tab:
         st.markdown("**限时奖励规则**")
         time_table = st.data_editor(
             pd.DataFrame(time_rules_data),
             num_rows="dynamic",
-            width="stretch",
             hide_index=True,
             key="time_editor",
             column_config={
@@ -399,6 +400,8 @@ def main() -> None:
                 "加成": st.column_config.NumberColumn("加成", format="%d"),
             },
         )
+
+
 
     if st.button("保存基础奖励配置"):
         # 过滤空行
