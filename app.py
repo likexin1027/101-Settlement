@@ -366,11 +366,115 @@ def main() -> None:
             rate_bili = col3.number_input("B站 CPM", value=float(cpm_cfg.get("B站", 1.80)), step=0.1, format="%0.2f")
             cpm_cfg = {"抖音/视频号": rate_dy, "小红书": rate_xhs, "B站": rate_bili}
         else:  # 瓜分
-            st.markdown("**瓜分配置**")
-            col1, col2 = st.columns(2)
-            pool_total = col1.number_input("奖金池总额(元)", value=float(pool_cfg.get("total", 10000)), step=100.0)
-            pool_min = col2.number_input("最低播放量门槛", value=float(pool_cfg.get("min_play", 10000)), step=100.0)
-            pool_cfg = {"total": pool_total, "min_play": pool_min}
+            st.markdown("**瓜分赛道配置**")
+
+            platform_options = ["抖音/视频号", "小红书", "B站"]
+            tracks_state = cast(list[dict[str, object]], base_params.get("tracks", []))
+            if not tracks_state:
+                pool_total_fb = float(pool_cfg.get("total", 10000))
+                pool_min_fb = float(pool_cfg.get("min_play", 10000))
+                tracks_state = [
+                    {
+                        "name": "默认瓜分赛道",
+                        "platforms": platform_options,
+                        "merge_mode": "sum",
+                        "pool_tiers": [{"min_play": pool_min_fb, "pool": pool_total_fb}],
+                        "coefficients": {},
+                        "floor": 0.0,
+                    }
+                ]
+
+            tracks_state = [t for t in tracks_state if isinstance(t, dict)]
+
+            for t_idx, track in enumerate(tracks_state):
+
+                label = str(track.get("name", "赛道") or f"赛道 {t_idx+1}")
+                with st.expander(label, expanded=False):
+                    name_val = st.text_input("赛道名称", value=str(track.get("name", "")), key=f"track_name_{t_idx}")
+
+                    platforms_raw = track.get("platforms", platform_options)
+                    platforms_list = platforms_raw if isinstance(platforms_raw, list) else platform_options
+                    platforms_val = st.multiselect(
+                        "参与平台",
+                        platform_options,
+                        default=[p for p in platforms_list if isinstance(p, str) and p in platform_options],
+                        key=f"track_platforms_{t_idx}",
+                    )
+
+                    merge_options = ["sum", "max", "max_plus_sum"]
+                    merge_mode_raw = str(track.get("merge_mode", "sum") or "sum")
+                    merge_mode_val = merge_mode_raw if merge_mode_raw in merge_options else "sum"
+                    merge_mode_val = st.selectbox(
+                        "播放合并方式",
+                        merge_options,
+                        index=merge_options.index(merge_mode_val),
+                        format_func=lambda x: {"sum": "求和", "max": "取最大", "max_plus_sum": "最大+其余求和"}.get(str(x), str(x)),
+                        key=f"track_merge_{t_idx}",
+                    )
+
+                    floor_raw = track.get("floor", 0.0)
+                    if isinstance(floor_raw, (int, float, str)):
+                        try:
+                            floor_val = float(floor_raw)
+                        except Exception:  # noqa: BLE001
+                            floor_val = 0.0
+                    else:
+                        floor_val = 0.0
+
+
+                    tiers_raw = track.get("pool_tiers", [])
+                    tiers_list_raw = tiers_raw if isinstance(tiers_raw, list) else []
+                    tiers_list: list[dict[str, float]] = []
+                    for item in tiers_list_raw:
+                        if isinstance(item, dict):
+                            tiers_list.append({"min_play": float(item.get("min_play", 0) or 0), "pool": float(item.get("pool", 0) or 0)})
+                    tiers_df = st.data_editor(
+                        pd.DataFrame(tiers_list),
+                        num_rows="dynamic",
+                        hide_index=True,
+                        key=f"track_tiers_{t_idx}",
+                        column_config={
+                            "min_play": st.column_config.NumberColumn("门槛播放量", format="%d"),
+                            "pool": st.column_config.NumberColumn("奖金池金额", format="%d"),
+                        },
+                    )
+
+
+
+                    coeffs_val: dict[str, float] = {}
+                    if platforms_val:
+                        st.markdown("**平台系数**")
+                        coeff_cols = st.columns(len(platforms_val))
+                        coeff_raw = track.get("coefficients", {})
+                        coeff_dict = coeff_raw if isinstance(coeff_raw, dict) else {}
+                        for i, plat in enumerate(platforms_val):
+                            default_coeff = float(coeff_dict.get(plat, 1.0))
+                            coeffs_val[plat] = coeff_cols[i].number_input(f"{plat}系数", value=default_coeff, step=0.1, format="%0.2f", key=f"coeff_{t_idx}_{plat}")
+
+                    tracks_state[t_idx] = {
+                        "name": name_val or f"赛道{t_idx+1}",
+                        "platforms": platforms_val or platform_options,
+                        "merge_mode": merge_mode_val,
+                        "pool_tiers": tiers_df.to_dict(orient="records"),
+                        "coefficients": coeffs_val,
+                        "floor": floor_val,
+                    }
+
+
+            # 兼容旧字段，保留 pool 作兜底
+            if tracks_state:
+                pool_tiers_first = tracks_state[0].get("pool_tiers")
+                if isinstance(pool_tiers_first, list) and pool_tiers_first:
+                    first_tier_obj = pool_tiers_first[0]
+                    if isinstance(first_tier_obj, dict):
+                        pool_total_val = float(first_tier_obj.get("pool", pool_cfg.get("total", 10000)))
+                        pool_min_val = float(first_tier_obj.get("min_play", pool_cfg.get("min_play", 10000)))
+                        pool_cfg = {"total": pool_total_val, "min_play": pool_min_val}
+            base_params["tracks"] = tracks_state
+
+
+
+
 
     with quality_tab:
         st.markdown("**优秀奖励规则**")
@@ -406,15 +510,23 @@ def main() -> None:
     if st.button("保存基础奖励配置"):
         # 过滤空行
         tiers_clean = [row for row in reward_table.to_dict(orient="records") if any(str(v).strip() for v in row.values())]
+        base_params_payload = {"tiers": tiers_clean, "cpm": cpm_cfg, "pool": pool_cfg}
+        if base_mode == "瓜分":
+            tracks_raw = base_params.get("tracks", [])
+            tracks_payload = [t for t in tracks_raw if isinstance(t, dict)] if isinstance(tracks_raw, list) else []
+            base_params_payload["tracks"] = tracks_payload
+
+
         update_activity_rule(
             current_activity["id"],
             pd.DataFrame(tiers_clean if base_mode == "档位" else reward_table),
             quality_rules=cast(list[dict[str, object]], quality_table.to_dict(orient="records")),
             time_rules=cast(list[dict[str, object]], time_table.to_dict(orient="records")),
             base_mode=base_mode,
-            base_params={"tiers": tiers_clean, "cpm": cpm_cfg, "pool": pool_cfg},
+            base_params=base_params_payload,
         )
         st.success("基础奖励配置已保存到当前活动")
+
 
 
 
@@ -452,13 +564,18 @@ def main() -> None:
         st.dataframe(df.head(200), use_container_width=True, height=360, key="raw_preview")
 
     rule_config_payload = {
-
         "table": reward_table,
         "quality_rules": quality_table.to_dict(orient="records"),
         "time_rules": time_table.to_dict(orient="records"),
         "base_mode": base_mode,
-        "base_params": {"tiers": reward_table.to_dict(orient="records"), "cpm": cpm_cfg, "pool": pool_cfg},
+        "base_params": {
+            "tiers": reward_table.to_dict(orient="records"),
+            "cpm": cpm_cfg,
+            "pool": pool_cfg,
+            "tracks": base_params.get("tracks", []),
+        },
     }
+
 
     try:
         result_df = cast(pd.DataFrame, compute_rewards(df, rule_config_payload))
