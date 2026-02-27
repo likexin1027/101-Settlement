@@ -36,19 +36,39 @@ HAS_CALAMINE = False  # calamine 非必需；如需更强兼容可自行安装
 
 
 BASE_DIR = Path(__file__).resolve().parent
-if str(BASE_DIR) not in sys.path:
-    sys.path.insert(0, str(BASE_DIR))
+PROJECT_ROOT = BASE_DIR
+PARENT_DIR = BASE_DIR.parent
+for p in [str(PROJECT_ROOT), str(PARENT_DIR)]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
-from reward_system import reward_logic as _reward_logic
-from activity_store import (
-    Activity,
-    add_activity,
-    get_activity_by_id,
-    load_activities,
-    update_activity_rule,
-    delete_activity,
-    update_activity_meta,
-)
+try:
+    from reward_system import reward_logic as _reward_logic
+    from activity_store import (
+        Activity,
+        add_activity,
+        get_activity_by_id,
+        load_activities,
+        update_activity_rule,
+        delete_activity,
+        update_activity_meta,
+    )
+except ModuleNotFoundError:
+    # 再次兜底：确保父目录也在 sys.path，避免云端工作目录不同导致导入失败
+    for p in [str(PROJECT_ROOT), str(PARENT_DIR)]:
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    from reward_system import reward_logic as _reward_logic
+    from activity_store import (
+        Activity,
+        add_activity,
+        get_activity_by_id,
+        load_activities,
+        update_activity_rule,
+        delete_activity,
+        update_activity_meta,
+    )
+
 
 
 
